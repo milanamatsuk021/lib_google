@@ -1,78 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
-
-// --- ТИПЫ ДАННЫХ ---
-// Перечисления (Enums) для категорий и статусов книг
-export enum BookCategory {
-  READING = 'Читаю',
-  READ = 'Прочитано',
-  WANT_TO_READ = 'Хочу прочитать',
-}
-
-export enum PhysicalStatus {
-  OWNED = 'В коллекции',
-  WANT_TO_BUY = 'Хочу купить',
-}
-
-// Интерфейс для книги в библиотеке
-export interface Book {
-  id: string;
-  title: string;
-  author: string;
-  description: string;
-  publisher: string;
-  series: string;
-  category: BookCategory;
-  physicalStatus?: PhysicalStatus;
-}
-
-// "Сырой" тип книги, получаемый из поиска (без категорий)
-export type RawBook = Omit<Book, 'category' | 'physicalStatus'>;
-
-// Перечисление для навигации по экранам
-export enum View {
-  LIBRARY,
-  SEARCH,
-  WISHLIST,
-  COLLECTION,
-}
-
-
-// --- КОМПОНЕНТЫ ИКОНОК ---
-const BookOpenIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v11.494m-9-5.996h18m-18 0a9 9 0 0118 0m-18 0a9 9 0 0018 0" />
-  </svg>
-);
-
-const SearchIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-  </svg>
-);
-
-const HeartIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 016.364 0L12 7.757l1.318-1.439a4.5 4.5 0 016.364 6.364l-7.682 7.682a.5.5 0 01-.707 0L4.318 12.682a4.5 4.5 0 010-6.364z" />
-  </svg>
-);
-
-const CollectionIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0v-16m0 16a2 2 0 002 2h8a2 2 0 002-2m-10 0v-1" />
-  </svg>
-);
-
-const PlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-    </svg>
-);
-
-const XIcon: React.FC<{ className?: string }> = ({ className }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-);
+import { GoogleGenAI, Type } from "@google/genai";
+import { initialBooks } from './db';
+import { Book, BookCategory, PhysicalStatus, View, RawBook, RecommendedBook, RecommendedBookWithStatus } from './types';
 
 
 // --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
@@ -98,30 +28,31 @@ const BottomNav: React.FC<{
   setView: (view: View) => void;
 }> = ({ activeView, setView }) => {
   const NavItem: React.FC<{
-    icon: React.ElementType;
+    emoji: string;
     label: string;
     isActive: boolean;
     onClick: () => void;
-  }> = ({ icon: Icon, label, isActive, onClick }) => (
+  }> = ({ emoji, label, isActive, onClick }) => (
     <button onClick={onClick} className="flex flex-col items-center justify-center w-full pt-2 pb-1 text-sm transition-colors duration-200">
-      <Icon className={`h-6 w-6 mb-1 ${isActive ? 'text-blue-500' : 'text-gray-400'}`} />
+      <span className={`text-2xl mb-1 transition-transform duration-200 ${isActive ? 'scale-110' : 'opacity-70'}`}>{emoji}</span>
       <span className={`transition-opacity ${isActive ? 'text-blue-500 font-semibold' : 'text-gray-500'}`}>{label}</span>
     </button>
   );
 
   const navItems = [
-    { view: View.LIBRARY, icon: BookOpenIcon, label: 'Библиотека' },
-    { view: View.SEARCH, icon: SearchIcon, label: 'Поиск' },
-    { view: View.WISHLIST, icon: HeartIcon, label: 'Желания' },
-    { view: View.COLLECTION, icon: CollectionIcon, label: 'Коллекция' },
+    { view: View.LIBRARY, emoji: '📚', label: 'Библиотека' },
+    { view: View.SEARCH, emoji: '🔍', label: 'Поиск' },
+    { view: View.RECOMMENDATIONS, emoji: '✨', label: 'Для Вас' },
+    { view: View.WISHLIST, emoji: '❤️', label: 'Желания' },
+    { view: View.COLLECTION, emoji: '📋', label: 'Коллекция' },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 shadow-[0_-2px_5px_rgba(0,0,0,0.05)] flex justify-around">
+    <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 shadow-[0_-2px_5px_rgba(0,0,0,0.05)] flex justify-around z-20">
       {navItems.map((item) => (
         <NavItem
           key={item.view}
-          icon={item.icon}
+          emoji={item.emoji}
           label={item.label}
           isActive={activeView === item.view}
           onClick={() => setView(item.view)}
@@ -158,6 +89,37 @@ const BookCard: React.FC<{
   </div>
 );
 
+const RecommendationCard: React.FC<{
+    book: RecommendedBookWithStatus;
+    onAddToWantToRead: (book: RecommendedBook) => void;
+}> = ({ book, onAddToWantToRead }) => (
+    <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-3">
+        <div>
+            <h3 className="font-bold text-lg text-gray-900">{book.title}</h3>
+            <p className="text-sm text-gray-600 mt-1">{book.author}</p>
+        </div>
+        <div className="p-3 bg-blue-50 rounded-md flex items-start space-x-3">
+            <span className="text-xl flex-shrink-0 mt-0.5">💡</span>
+            <p className="text-sm text-blue-900">
+                <span className="font-semibold">Почему это может вам понравиться:</span> {book.reason}
+            </p>
+        </div>
+        <div className="pt-2">
+            <button
+                onClick={() => onAddToWantToRead(book)}
+                disabled={book.isAddedToWantToRead}
+                className={`w-full px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    book.isAddedToWantToRead
+                        ? 'bg-green-100 text-green-700 cursor-not-allowed'
+                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                }`}
+            >
+                {book.isAddedToWantToRead ? 'В списке ✓' : 'Хочу прочитать'}
+            </button>
+        </div>
+    </div>
+);
+
 const ManualAddBookModal: React.FC<{
     onClose: () => void;
     onAdd: (book: RawBook) => void;
@@ -190,7 +152,7 @@ const ManualAddBookModal: React.FC<{
             <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 space-y-4">
                 <div className="flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-900">Добавить книгу вручную</h2>
-                    <button onClick={onClose}><XIcon className="w-6 h-6 text-gray-500" /></button>
+                    <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
                 </div>
                 {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded-md">{error}</p>}
                 <div><label className="block text-sm font-medium text-gray-700">Название*</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"/></div>
@@ -213,7 +175,7 @@ const SearchResultCard: React.FC<{ book: RawBook, onAdd: (book: RawBook) => void
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100">
             <button onClick={() => onAdd(book)} className="w-full bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 flex items-center justify-center">
-                <PlusIcon className="w-4 h-4 mr-1" />Добавить
+                <span className="mr-1 font-bold text-lg">+</span>Добавить
             </button>
         </div>
     </div>
@@ -226,7 +188,10 @@ const AddBookModal: React.FC<{ book: RawBook, onAddBook: (book: Book) => void, o
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-gray-900">Добавить книгу</h2><button onClick={onClose}><XIcon className="w-6 h-6 text-gray-500" /></button></div>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">Добавить книгу</h2>
+                    <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
                 <div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-2">Категория</label><select value={category} onChange={(e) => setCategory(e.target.value as BookCategory)} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900">{Object.values(BookCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
                 <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-2">Физический статус</label><select value={physicalStatus || ''} onChange={(e) => setPhysicalStatus(e.target.value as PhysicalStatus || undefined)} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"><option value="">Не выбрано</option>{Object.values(PhysicalStatus).map(stat => <option key={stat} value={stat}>{stat}</option>)}</select></div>
                 <button onClick={() => onAddBook({ ...book, category, physicalStatus })} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-blue-600">Добавить в библиотеку</button>
@@ -244,9 +209,32 @@ const BookDetailsModal: React.FC<{ book: Book | null, onClose: () => void, onUpd
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onClick={onClose}>
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="p-6"><div className="flex justify-end"><button onClick={onClose}><XIcon className="w-6 h-6 text-gray-500" /></button></div><div className="text-center"><h2 className="text-2xl font-bold text-gray-900">{book.title}</h2><p className="text-lg text-gray-600 mt-1">{book.author}</p><p className="text-sm text-gray-500 mt-2">{book.publisher}{book.series && `, ${book.series}`}</p></div></div>
-                <div className="px-6 py-4 bg-gray-50"><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Категория</label><select value={book.category} onChange={handleCategoryChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900">{Object.values(BookCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Статус</label><select value={book.physicalStatus || ''} onChange={handleStatusChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"><option value="">Не выбрано</option>{Object.values(PhysicalStatus).map(stat => <option key={stat} value={stat}>{stat}</option>)}</select></div></div><p className="text-sm text-gray-600 mt-4">{book.description}</p></div>
-                <div className="px-6 py-4"><button onClick={() => onDelete(book.id)} className="w-full bg-red-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-red-600">Удалить из библиотеки</button></div>
+                <div className="p-6">
+                    <div className="flex justify-end">
+                        <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
+                    </div>
+                    <div className="text-center">
+                        <h2 className="text-2xl font-bold text-gray-900">{book.title}</h2>
+                        <p className="text-lg text-gray-600 mt-1">{book.author}</p>
+                        <p className="text-sm text-gray-500 mt-2">{book.publisher}{book.series && `, ${book.series}`}</p>
+                    </div>
+                </div>
+                <div className="px-6 py-4 bg-gray-50">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
+                            <select value={book.category} onChange={handleCategoryChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900">{Object.values(BookCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Статус</label>
+                            <select value={book.physicalStatus || ''} onChange={handleStatusChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"><option value="">Не выбрано</option>{Object.values(PhysicalStatus).map(stat => <option key={stat} value={stat}>{stat}</option>)}</select>
+                        </div>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-4">{book.description}</p>
+                </div>
+                <div className="px-6 py-4">
+                    <button onClick={() => onDelete(book.id)} className="w-full bg-red-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-red-600">Удалить из библиотеки</button>
+                </div>
             </div>
         </div>
     );
@@ -295,10 +283,13 @@ const App: React.FC = () => {
   const [books, setBooks] = useState<Book[]>(() => {
     try {
       const item = window.localStorage.getItem('books');
-      return item ? JSON.parse(item) : [];
+      if (item && item !== '[]') {
+        return JSON.parse(item);
+      }
+      return initialBooks; // Загружаем из db.ts, если localStorage пуст
     } catch (error) {
-      console.error("Ошибка чтения из localStorage:", error);
-      return [];
+      console.error("Ошибка чтения из localStorage, используем начальные данные:", error);
+      return initialBooks;
     }
   });
 
@@ -317,6 +308,11 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [searchInAuthor, setSearchInAuthor] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  // Состояния для рекомендаций
+  const [recommendations, setRecommendations] = useState<RecommendedBookWithStatus[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
   
   // Состояния для модальных окон
   const [modalBook, setModalBook] = useState<RawBook | null>(null);
@@ -370,10 +366,84 @@ const App: React.FC = () => {
     setIsManualAddModalOpen(false);
   };
 
+  const handleGetRecommendations = async () => {
+    setIsLoadingRecommendations(true);
+    setRecommendations([]);
+    setRecommendationError(null);
+
+    const booksForAnalysis = books.filter(
+        (b) => b.category === BookCategory.READ || b.category === BookCategory.READING
+    );
+
+    if (booksForAnalysis.length < 1) {
+        setRecommendationError("Добавьте хотя бы одну книгу в 'Читаю' или 'Прочитано' для получения рекомендаций.");
+        setIsLoadingRecommendations(false);
+        return;
+    }
+
+    const bookList = booksForAnalysis.map((b) => `${b.title} (${b.author})`).join(', ');
+    const prompt = `На основе этих книг, которые я прочитал: ${bookList}. Порекомендуй 5 новых книг, которые могут мне понравиться. Для каждой книги укажи название, автора и краткое объяснение (одно предложение), почему она мне подходит. Твой ответ должен быть в формате JSON-массива объектов, где каждый объект имеет ключи "title", "author" и "reason".`;
+
+    try {
+        const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            author: { type: Type.STRING },
+                            reason: { type: Type.STRING },
+                        },
+                        required: ["title", "author", "reason"],
+                    },
+                },
+            },
+        });
+        
+        const jsonText = response.text.trim();
+        const recommendedBooks: RecommendedBook[] = JSON.parse(jsonText);
+        setRecommendations(recommendedBooks);
+    } catch (error) {
+        console.error("Ошибка при получении рекомендаций:", error);
+        setRecommendationError("Не удалось получить рекомендации. Попробуйте позже.");
+    } finally {
+        setIsLoadingRecommendations(false);
+    }
+  };
+  
+  const handleAddRecommendationToWantToRead = (rec: RecommendedBook) => {
+    const bookId = `ai-${rec.title.replace(/\s/g, '')}`;
+    const existingBook = books.find(b => b.id === bookId);
+
+    if (!existingBook) {
+      const newBook: Book = {
+        id: bookId,
+        title: rec.title,
+        author: rec.author,
+        description: rec.reason,
+        publisher: 'Не указан',
+        series: '',
+        category: BookCategory.WANT_TO_READ,
+      };
+      addBookToLibrary(newBook);
+    }
+    
+    setRecommendations(prev => 
+        prev.map(r => r.title === rec.title ? { ...r, isAddedToWantToRead: true } : r)
+    );
+  };
+
   // --- ЛОГИКА ОТОБРАЖЕНИЯ ---
   const headerTitle = {
     [View.LIBRARY]: 'Моя библиотека',
     [View.SEARCH]: 'Поиск книг',
+    [View.RECOMMENDATIONS]: 'Книги для Вас',
     [View.WISHLIST]: 'Список желаний',
     [View.COLLECTION]: 'Моя коллекция',
   }[activeView];
@@ -398,25 +468,74 @@ const App: React.FC = () => {
             {searchError && <p className="text-center text-red-500 p-4 bg-red-50 rounded-lg">{searchError}</p>}
             <div className="space-y-4">{searchResults.map((book) => <SearchResultCard key={book.id} book={book} onAdd={setModalBook} />)}</div>
             {!isLoading && !searchError && searchResults.length === 0 && searchQuery && <p className="text-center text-gray-500">Ничего не найдено.</p>}
-            <button onClick={() => setIsManualAddModalOpen(true)} className="fixed bottom-20 right-4 bg-blue-500 text-white rounded-full p-4 shadow-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" aria-label="Добавить книгу вручную"><PlusIcon className="w-6 h-6" /></button>
+            <button onClick={() => setIsManualAddModalOpen(true)} className="fixed bottom-20 right-4 bg-blue-500 text-white rounded-full h-14 w-14 flex items-center justify-center shadow-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500" aria-label="Добавить книгу вручную">
+              <span className="text-3xl font-light leading-none">+</span>
+            </button>
           </div>
+        );
+      case View.RECOMMENDATIONS:
+        return (
+            <div className="p-4 space-y-4">
+                {isLoadingRecommendations && <Spinner />}
+                {recommendationError && <p className="text-center text-red-500 p-4 bg-red-50 rounded-lg">{recommendationError}</p>}
+
+                {recommendations.length > 0 && (
+                  <>
+                    <div className="space-y-4">
+                        {recommendations.map((rec, index) => (
+                            <RecommendationCard 
+                              key={`${rec.title}-${index}`} 
+                              book={rec} 
+                              onAddToWantToRead={handleAddRecommendationToWantToRead}
+                            />
+                        ))}
+                    </div>
+                     <div className="pt-4">
+                        <button 
+                            onClick={handleGetRecommendations}
+                            disabled={isLoadingRecommendations}
+                            className="w-full flex items-center justify-center bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
+                        >
+                            <span className={`inline-block mr-2 ${isLoadingRecommendations ? 'animate-spin' : ''}`}>🔄</span>
+                            {isLoadingRecommendations ? 'Ищем новые...' : 'Показать другие'}
+                        </button>
+                    </div>
+                  </>
+                )}
+                
+                {!isLoadingRecommendations && recommendations.length === 0 && !recommendationError && (
+                    <div className="text-center p-8 flex flex-col items-center">
+                        <span className="text-6xl mb-4">✨</span>
+                        <h2 className="text-xl font-bold text-gray-800">Откройте для себя новые книги</h2>
+                        <p className="text-gray-600 mt-2 max-w-sm">
+                            Искусственный интеллект проанализирует вашу библиотеку и подберёт книги, которые вам точно понравятся.
+                        </p>
+                        <button 
+                            onClick={handleGetRecommendations}
+                            className="mt-6 bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 transition-transform transform hover:scale-105"
+                        >
+                            Найти книги для меня
+                        </button>
+                    </div>
+                )}
+            </div>
         );
       case View.WISHLIST:
         const wishlistBooks = books.filter(b => b.physicalStatus === PhysicalStatus.WANT_TO_BUY);
         return (
-          <div className="p-4 space-y-4">{wishlistBooks.length > 0 ? wishlistBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500">Ваш список желаний пуст.</p>}</div>
+          <div className="p-4 grid grid-cols-2 gap-4">{wishlistBooks.length > 0 ? wishlistBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 col-span-2">Ваш список желаний пуст.</p>}</div>
         );
       case View.COLLECTION:
         const collectionBooks = books.filter(b => b.physicalStatus === PhysicalStatus.OWNED);
         return (
-          <div className="p-4 space-y-4">{collectionBooks.length > 0 ? collectionBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500">Ваша коллекция пуста.</p>}</div>
+          <div className="p-4 grid grid-cols-2 gap-4">{collectionBooks.length > 0 ? collectionBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 col-span-2">Ваша коллекция пуста.</p>}</div>
         );
       default:
         const filteredBooks = books.filter(b => b.category === activeTab);
         return (
           <div>
             <div className="flex border-b border-gray-200">{Object.values(BookCategory).map(cat => <button key={cat} onClick={() => setActiveTab(cat)} className={`flex-1 py-3 text-sm font-medium ${activeTab === cat ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-500'}`}>{cat}</button>)}</div>
-            <div className="p-4 space-y-4">{filteredBooks.length > 0 ? filteredBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 pt-8">В этой категории пока нет книг.</p>}</div>
+            <div className="p-4 grid grid-cols-2 gap-4">{filteredBooks.length > 0 ? filteredBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 pt-8 col-span-2">В этой категории пока нет книг.</p>}</div>
           </div>
         );
     }

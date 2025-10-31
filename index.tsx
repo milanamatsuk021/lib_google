@@ -1,4 +1,9 @@
-
+/**
+ * @file index.tsx
+ * @description Точка входа React-приложения.
+ * Этот файл отвечает за рендеринг (монтирование) корневого компонента <App />
+ * в DOM-элемент с id="root" в файле index.html.
+ */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

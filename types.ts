@@ -45,3 +45,9 @@ export enum View {
   WISHLIST,
   COLLECTION,
 }
+
+// Тип для опции в универсальном компоненте Select
+export interface SelectOption {
+  value: string;
+  label: string;
+}

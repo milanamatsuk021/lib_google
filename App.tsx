@@ -1,311 +1,42 @@
-
 import React, { useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
-import { initialBooks } from './db';
 import { Book, BookCategory, PhysicalStatus, View, RawBook, RecommendedBook, RecommendedBookWithStatus } from './types';
+import { searchBooks } from './services/googleBooksService';
+import { getRecommendationsFromGemini } from './services/geminiService';
+import { dbService } from './services/dbService';
+
+import { Header } from './components/Header';
+import { BottomNav } from './components/BottomNav';
+import { Spinner } from './components/Spinner';
+import { BookCard } from './components/BookCard';
+import { SearchResultCard } from './components/SearchResultCard';
+import { RecommendationCard } from './components/RecommendationCard';
+import { ManualAddBookModal } from './components/ManualAddBookModal';
+import { AddBookModal } from './components/AddBookModal';
+import { BookDetailsModal } from './components/BookDetailsModal';
 
 
-// --- ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
-
-const Spinner: React.FC = () => (
-  <div className="flex justify-center items-center p-4">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-  </div>
-);
-
-const Header: React.FC<{ title: string }> = ({ title }) => (
-    <header className="sticky top-0 z-10 bg-white shadow-sm w-full">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-center h-16">
-                <h1 className="text-xl font-bold text-gray-900">{title}</h1>
-            </div>
-        </div>
-    </header>
-);
-
-const BottomNav: React.FC<{
-  activeView: View;
-  setView: (view: View) => void;
-}> = ({ activeView, setView }) => {
-  const NavItem: React.FC<{
-    emoji: string;
-    label: string;
-    isActive: boolean;
-    onClick: () => void;
-  }> = ({ emoji, label, isActive, onClick }) => (
-    <button onClick={onClick} className="flex flex-col items-center justify-center w-full pt-2 pb-1 text-sm transition-colors duration-200">
-      <span className={`text-2xl mb-1 transition-transform duration-200 ${isActive ? 'scale-110' : 'opacity-70'}`}>{emoji}</span>
-      <span className={`transition-opacity ${isActive ? 'text-blue-500 font-semibold' : 'text-gray-500'}`}>{label}</span>
-    </button>
-  );
-
-  const navItems = [
-    { view: View.LIBRARY, emoji: '📚', label: 'Библиотека' },
-    { view: View.SEARCH, emoji: '🔍', label: 'Поиск' },
-    { view: View.RECOMMENDATIONS, emoji: '✨', label: 'Для Вас' },
-    { view: View.WISHLIST, emoji: '❤️', label: 'Желания' },
-    { view: View.COLLECTION, emoji: '📋', label: 'Коллекция' },
-  ];
-
-  return (
-    <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-200 shadow-[0_-2px_5px_rgba(0,0,0,0.05)] flex justify-around z-20">
-      {navItems.map((item) => (
-        <NavItem
-          key={item.view}
-          emoji={item.emoji}
-          label={item.label}
-          isActive={activeView === item.view}
-          onClick={() => setView(item.view)}
-        />
-      ))}
-    </div>
-  );
-};
-
-const BookCard: React.FC<{
-  book: Book;
-  onSelect: (book: Book) => void;
-}> = ({ book, onSelect }) => (
-  <div 
-    className="bg-white rounded-lg shadow p-4 cursor-pointer transition-transform duration-200 hover:scale-105 flex flex-col justify-between"
-    onClick={() => onSelect(book)}
-  >
-    <div>
-      <h3 className="font-bold text-lg text-gray-900 line-clamp-2">{book.title}</h3>
-      <p className="text-sm text-gray-600 mt-1">{book.author}</p>
-    </div>
-    <div className="mt-4 flex items-center justify-between">
-       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{book.category}</span>
-       {book.physicalStatus && (
-         <span className={`text-xs px-2 py-1 rounded-full ${
-            book.physicalStatus === PhysicalStatus.OWNED 
-            ? 'bg-green-100 text-green-800' 
-            : 'bg-yellow-100 text-yellow-800'
-         }`}>
-            {book.physicalStatus}
-         </span>
-       )}
-    </div>
-  </div>
-);
-
-const RecommendationCard: React.FC<{
-    book: RecommendedBookWithStatus;
-    onAddToWantToRead: (book: RecommendedBook) => void;
-}> = ({ book, onAddToWantToRead }) => (
-    <div className="bg-white rounded-lg shadow p-4 flex flex-col space-y-3">
-        <div>
-            <h3 className="font-bold text-lg text-gray-900">{book.title}</h3>
-            <p className="text-sm text-gray-600 mt-1">{book.author}</p>
-        </div>
-        <div className="p-3 bg-blue-50 rounded-md flex items-start space-x-3">
-            <span className="text-xl flex-shrink-0 mt-0.5">💡</span>
-            <p className="text-sm text-blue-900">
-                <span className="font-semibold">Почему это может вам понравиться:</span> {book.reason}
-            </p>
-        </div>
-        <div className="pt-2">
-            <button
-                onClick={() => onAddToWantToRead(book)}
-                disabled={book.isAddedToWantToRead}
-                className={`w-full px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                    book.isAddedToWantToRead
-                        ? 'bg-green-100 text-green-700 cursor-not-allowed'
-                        : 'bg-blue-500 text-white hover:bg-blue-600'
-                }`}
-            >
-                {book.isAddedToWantToRead ? 'В списке ✓' : 'Хочу прочитать'}
-            </button>
-        </div>
-    </div>
-);
-
-const ManualAddBookModal: React.FC<{
-    onClose: () => void;
-    onAdd: (book: RawBook) => void;
-}> = ({ onClose, onAdd }) => {
-    const [title, setTitle] = useState('');
-    const [author, setAuthor] = useState('');
-    const [description, setDescription] = useState('');
-    const [publisher, setPublisher] = useState('');
-    const [series, setSeries] = useState('');
-    const [error, setError] = useState('');
-
-    const handleSubmit = () => {
-        if (!title.trim() || !author.trim()) {
-            setError('Название и автор обязательны для заполнения.');
-            return;
-        }
-        setError('');
-        onAdd({
-            id: `manual-${Date.now()}`,
-            title: title.trim(),
-            author: author.trim(),
-            description: description.trim() || 'Описание отсутствует.',
-            publisher: publisher.trim() || 'Издатель не указан',
-            series: series.trim(),
-        });
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 space-y-4">
-                <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-gray-900">Добавить книгу вручную</h2>
-                    <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
-                </div>
-                {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded-md">{error}</p>}
-                <div><label className="block text-sm font-medium text-gray-700">Название*</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"/></div>
-                <div><label className="block text-sm font-medium text-gray-700">Автор*</label><input type="text" value={author} onChange={(e) => setAuthor(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"/></div>
-                <div><label className="block text-sm font-medium text-gray-700">Описание</label><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"></textarea></div>
-                <div><label className="block text-sm font-medium text-gray-700">Издатель</label><input type="text" value={publisher} onChange={(e) => setPublisher(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"/></div>
-                <div><label className="block text-sm font-medium text-gray-700">Серия</label><input type="text" value={series} onChange={(e) => setSeries(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"/></div>
-                <button onClick={handleSubmit} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-blue-600">Продолжить</button>
-            </div>
-        </div>
-    );
-};
-
-const SearchResultCard: React.FC<{ book: RawBook, onAdd: (book: RawBook) => void }> = ({ book, onAdd }) => (
-    <div className="bg-white rounded-lg shadow p-4 flex flex-col">
-        <div>
-            <h3 className="font-bold text-lg text-gray-900 line-clamp-2">{book.title}</h3>
-            <p className="text-sm text-gray-600 mt-1 line-clamp-1">{book.author}</p>
-            <p className="text-xs text-gray-500 mt-2 line-clamp-3">{book.description}</p>
-        </div>
-        <div className="mt-4 pt-4 border-t border-gray-100">
-            <button onClick={() => onAdd(book)} className="w-full bg-blue-500 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 flex items-center justify-center">
-                <span className="mr-1 font-bold text-lg">+</span>Добавить
-            </button>
-        </div>
-    </div>
-);
-
-const AddBookModal: React.FC<{ book: RawBook, onAddBook: (book: Book) => void, onClose: () => void }> = ({ book, onAddBook, onClose }) => {
-    const [category, setCategory] = useState<BookCategory>(BookCategory.WANT_TO_READ);
-    const [physicalStatus, setPhysicalStatus] = useState<PhysicalStatus | undefined>(undefined);
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-gray-900">Добавить книгу</h2>
-                    <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
-                </div>
-                <div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-2">Категория</label><select value={category} onChange={(e) => setCategory(e.target.value as BookCategory)} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900">{Object.values(BookCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
-                <div className="mb-6"><label className="block text-sm font-medium text-gray-700 mb-2">Физический статус</label><select value={physicalStatus || ''} onChange={(e) => setPhysicalStatus(e.target.value as PhysicalStatus || undefined)} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"><option value="">Не выбрано</option>{Object.values(PhysicalStatus).map(stat => <option key={stat} value={stat}>{stat}</option>)}</select></div>
-                <button onClick={() => onAddBook({ ...book, category, physicalStatus })} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-blue-600">Добавить в библиотеку</button>
-            </div>
-        </div>
-    );
-};
-
-const BookDetailsModal: React.FC<{ book: Book | null, onClose: () => void, onUpdate: (updatedBook: Book) => void, onDelete: (bookId: string) => void }> = ({ book, onClose, onUpdate, onDelete }) => {
-    if (!book) return null;
-
-    const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => onUpdate({ ...book, category: e.target.value as BookCategory });
-    const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => onUpdate({ ...book, physicalStatus: e.target.value as PhysicalStatus || undefined });
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onClick={onClose}>
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="p-6">
-                    <div className="flex justify-end">
-                        <button onClick={onClose} className="text-2xl text-gray-500 hover:text-gray-800">&times;</button>
-                    </div>
-                    <div className="text-center">
-                        <h2 className="text-2xl font-bold text-gray-900">{book.title}</h2>
-                        <p className="text-lg text-gray-600 mt-1">{book.author}</p>
-                        <p className="text-sm text-gray-500 mt-2">{book.publisher}{book.series && `, ${book.series}`}</p>
-                    </div>
-                </div>
-                <div className="px-6 py-4 bg-gray-50">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
-                            <select value={book.category} onChange={handleCategoryChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900">{Object.values(BookCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Статус</label>
-                            <select value={book.physicalStatus || ''} onChange={handleStatusChange} className="w-full p-2 border border-gray-300 rounded-md bg-white text-gray-900"><option value="">Не выбрано</option>{Object.values(PhysicalStatus).map(stat => <option key={stat} value={stat}>{stat}</option>)}</select>
-                        </div>
-                    </div>
-                    <p className="text-sm text-gray-600 mt-4">{book.description}</p>
-                </div>
-                <div className="px-6 py-4">
-                    <button onClick={() => onDelete(book.id)} className="w-full bg-red-500 text-white py-2 px-4 rounded-md font-semibold hover:bg-red-600">Удалить из библиотеки</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- СЕРВИС ПОИСКА ---
-const searchBooks = async (query: string, searchInAuthor: boolean): Promise<RawBook[]> => {
-  if (!query.trim()) return [];
-  
-  const q = searchInAuthor ? `inauthor:"${query}"` : query;
-  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=10&lang=ru`;
-
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Сервис поиска временно недоступен. Попробуйте позже.');
-    
-    const data = await response.json();
-    if (!data.items) return [];
-
-    return data.items.map((item: any): RawBook | null => {
-      if (!item.volumeInfo?.title || !item.id) return null;
-      return {
-        id: item.id,
-        title: item.volumeInfo.title,
-        author: item.volumeInfo.authors?.join(', ') || 'Автор не указан',
-        description: item.volumeInfo.description || 'Описание отсутствует.',
-        publisher: item.volumeInfo.publisher || 'Издатель не указан',
-        series: '', // Google Books API не предоставляет надежного поля для серии
-      };
-    }).filter((book): book is RawBook => book !== null);
-
-  } catch (error) {
-    console.error("Ошибка при поиске книг:", error);
-    throw new Error('Не удалось выполнить поиск. Проверьте подключение к интернету.');
-  }
-};
-
-
-// --- ГЛАВНЫЙ КОМПОНЕНТ ПРИЛОЖЕНИЯ ---
+/**
+ * Главный компонент приложения "Моя Книжная Полка".
+ * Управляет состоянием всего приложения, включая:
+ * - Текущий отображаемый экран (view)
+ * - Список книг пользователя (загружается из IndexedDB)
+ * - Логику поиска и отображения результатов
+ * - Логику получения и отображения рекомендаций
+ * - Управление модальными окнами для добавления и редактирования книг.
+ * @returns {React.FC} Корневой JSX-элемент приложения.
+ */
 const App: React.FC = () => {
   // --- СОСТОЯНИЯ (STATES) ---
   const [activeView, setActiveView] = useState<View>(View.LIBRARY);
   const [activeTab, setActiveTab] = useState<BookCategory>(BookCategory.READING);
   
-  // Состояние для всех книг, с логикой сохранения в localStorage
-  const [books, setBooks] = useState<Book[]>(() => {
-    try {
-      const item = window.localStorage.getItem('books');
-      if (item && item !== '[]') {
-        return JSON.parse(item);
-      }
-      return initialBooks; // Загружаем из db.ts, если localStorage пуст
-    } catch (error) {
-      console.error("Ошибка чтения из localStorage, используем начальные данные:", error);
-      return initialBooks;
-    }
-  });
-
-  // Эффект для записи в localStorage при изменении списка книг
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('books', JSON.stringify(books));
-    } catch (error) {
-      console.error("Ошибка записи в localStorage:", error);
-    }
-  }, [books]);
+  // Состояние для всех книг, загружается из IndexedDB
+  const [books, setBooks] = useState<Book[]>([]);
 
   // Состояния для поиска
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<RawBook[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // true initially for db load
   const [searchInAuthor, setSearchInAuthor] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
@@ -318,6 +49,25 @@ const App: React.FC = () => {
   const [modalBook, setModalBook] = useState<RawBook | null>(null);
   const [detailsBook, setDetailsBook] = useState<Book | null>(null);
   const [isManualAddModalOpen, setIsManualAddModalOpen] = useState(false);
+  
+  // --- ЭФФЕКТЫ (EFFECTS) ---
+  // Загрузка книг из IndexedDB при первом запуске
+  useEffect(() => {
+    const loadBooks = async () => {
+      setIsLoading(true);
+      try {
+        await dbService.initDB();
+        const allBooks = await dbService.getAllBooks();
+        setBooks(allBooks);
+      } catch (error) {
+        console.error("Не удалось загрузить книги из базы данных", error);
+        setSearchError("Не удалось загрузить вашу библиотеку.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadBooks();
+  }, []);
 
 
   // --- ФУНКЦИИ-ОБРАБОТЧИКИ ---
@@ -343,22 +93,35 @@ const App: React.FC = () => {
     setSearchInAuthor(false);
   };
 
-  const addBookToLibrary = (bookToAdd: Book) => {
+  const addBookToLibrary = async (bookToAdd: Book) => {
     if (!books.some(b => b.id === bookToAdd.id)) {
-      setBooks(prev => [...prev, bookToAdd]);
+        try {
+            await dbService.addBook(bookToAdd);
+            setBooks(prev => [...prev, bookToAdd]);
+        } catch(error) {
+            console.error("Не удалось добавить книгу:", error);
+        }
     }
     setModalBook(null);
   };
 
-  const updateBookInLibrary = (updatedBook: Book) => {
-    setBooks(prev => prev.map(b => b.id === updatedBook.id ? updatedBook : b));
+  const updateBookInLibrary = async (updatedBook: Book) => {
+    try {
+        await dbService.updateBook(updatedBook);
+        setBooks(prev => prev.map(b => b.id === updatedBook.id ? updatedBook : b));
+    } catch(error) {
+        console.error("Не удалось обновить книгу:", error);
+    }
   };
 
-
-
-  const deleteBookFromLibrary = (bookId: string) => {
-    setBooks(prev => prev.filter(b => b.id !== bookId));
-    setDetailsBook(null);
+  const deleteBookFromLibrary = async (bookId: string) => {
+    try {
+        await dbService.deleteBook(bookId);
+        setBooks(prev => prev.filter(b => b.id !== bookId));
+        setDetailsBook(null);
+    } catch(error) {
+        console.error("Не удалось удалить книгу:", error);
+    }
   };
 
   const handleManualAdd = (book: RawBook) => {
@@ -381,33 +144,8 @@ const App: React.FC = () => {
         return;
     }
 
-    const bookList = booksForAnalysis.map((b) => `${b.title} (${b.author})`).join(', ');
-    const prompt = `На основе этих книг, которые я прочитал: ${bookList}. Порекомендуй 5 новых книг, которые могут мне понравиться. Для каждой книги укажи название, автора и краткое объяснение (одно предложение), почему она мне подходит. Твой ответ должен быть в формате JSON-массива объектов, где каждый объект имеет ключи "title", "author" и "reason".`;
-
     try {
-        const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            title: { type: Type.STRING },
-                            author: { type: Type.STRING },
-                            reason: { type: Type.STRING },
-                        },
-                        required: ["title", "author", "reason"],
-                    },
-                },
-            },
-        });
-        
-        const jsonText = response.text.trim();
-        const recommendedBooks: RecommendedBook[] = JSON.parse(jsonText);
+        const recommendedBooks = await getRecommendationsFromGemini(booksForAnalysis);
         setRecommendations(recommendedBooks);
     } catch (error) {
         console.error("Ошибка при получении рекомендаций:", error);
@@ -535,7 +273,7 @@ const App: React.FC = () => {
         return (
           <div>
             <div className="flex border-b border-gray-200">{Object.values(BookCategory).map(cat => <button key={cat} onClick={() => setActiveTab(cat)} className={`flex-1 py-3 text-sm font-medium ${activeTab === cat ? 'text-blue-500 border-b-2 border-blue-500' : 'text-gray-500'}`}>{cat}</button>)}</div>
-            <div className="p-4 grid grid-cols-2 gap-4">{filteredBooks.length > 0 ? filteredBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 pt-8 col-span-2">В этой категории пока нет книг.</p>}</div>
+            {isLoading ? <Spinner /> : <div className="p-4 grid grid-cols-2 gap-4">{filteredBooks.length > 0 ? filteredBooks.map(book => <BookCard key={book.id} book={book} onSelect={setDetailsBook}/>) : <p className="text-center text-gray-500 pt-8 col-span-2">В этой категории пока нет книг.</p>}</div>}
           </div>
         );
     }

@@ -5,7 +5,7 @@ import { Book, BookCategory, PhysicalStatus } from './types';
 const generateId = (title: string, author: string): string => {
   const cleanedTitle = title.toLowerCase().replace(/[^a-z0-9а-яё]/g, '');
   const cleanedAuthor = author.toLowerCase().replace(/[^a-z0-9а-яё]/g, '');
-  return `db-${cleanedTitle.substring(0, 15)}-${cleanedAuthor.substring(0, 15)}`;
+  return `db-${cleanedTitle}-${cleanedAuthor}`;
 };
 
 
